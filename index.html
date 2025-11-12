@@ -1,0 +1,1004 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Интерактивная карта БРСМ</title>
+    <link rel="shortcut icon" href="image/logo.ico">
+    
+    <!-- Подключаем Font Awesome для иконок -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+            overflow: hidden;
+        }
+        
+        /* Стили для экрана загрузки */
+        .loading-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #000;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            transition: opacity 0.5s ease-out;
+        }
+
+        #backgroundVideo {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            z-index: -1;
+        }
+        
+        .logo-container {
+            position: relative;
+            width: 250px;
+            height: 150px;
+            margin-bottom: 20px;
+            opacity: 0;
+            transform: scale(0.5);
+            animation: logoAppear 1s ease-out forwards;
+        }
+        
+        @keyframes logoAppear {
+            0% { opacity: 0; transform: scale(0.5); }
+            70% { transform: scale(1.1); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+        
+        .logo {
+            width: 100%;
+            height: 100%;
+            background-color: transparent;
+            background-image: url('image/logo.png');
+            background-size: contain;
+            background-repeat: no-repeat;
+            background-position: center;
+        }
+        
+        .welcome-message {
+            display: none;
+            font-size: 28px;
+            color: white;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.7);
+            margin-top: 20px;
+            opacity: 0;
+            transform: translateY(20px);
+        }
+        
+        .welcome-message.show {
+            display: block;
+            animation: fadeInUp 1s ease-out forwards;
+        }
+        
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        /* Стили для карты */
+        #map {
+            height: 100vh;
+            width: 100%;
+            display: none;
+            padding-bottom: 80px; 
+        }
+        
+        /* --- ИСПРАВЛЕННЫЕ СТИЛИ ДЛЯ МЕТОК --- */
+
+        .custom-marker-container {
+            width: 30px;
+            height: 30px;
+            margin-top: -30px; /* Компенсация высоты для якоря */
+            margin-left: -15px; /* Компенсация ширины для якоря */
+        }
+
+        .custom-marker-shape {
+            background-color: #3498db; /* Этот цвет будет переопределен JS */
+            border: 3px solid #fff;
+            border-radius: 50% 50% 50% 0;
+            height: 30px;
+            width: 30px;
+            position: relative;
+            transform: rotate(-45deg);
+            box-shadow: 0 2px 5px rgba(0,0,0,0.4);
+            transition: all 0.3s ease;
+        }
+
+        .custom-marker-shape::after {
+            content: '';
+            width: 10px;
+            height: 10px;
+            background: white;
+            border-radius: 50%;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        .custom-marker-shape.active {
+            border-radius: 50%;
+            transform: rotate(-45deg) scale(1.2);
+        }
+        
+        /* --- СТИЛИ ДЛЯ ПАНЕЛИ ОБЛАСТЕЙ --- */
+
+        #regions-panel {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            z-index: 997;
+            background-color: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(10px);
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            min-width: 200px;
+        }
+
+        #regions-panel h3 {
+            margin: 0 0 10px 0;
+            font-size: 16px;
+            color: #2c3e50;
+            border-bottom: 1px solid #ddd;
+            padding-bottom: 5px;
+        }
+
+        .region-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .region-item {
+            display: flex;
+            align-items: center;
+            padding: 5px 0;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            border-radius: 4px;
+        }
+
+        .region-item:hover {
+            background-color: rgba(52, 152, 219, 0.1);
+        }
+
+        .region-color-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 10px;
+            border: 1px solid #fff;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.3);
+        }
+        
+        /* Нижняя панель */
+        .bottom-panel {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 70px;
+            background-color: rgba(33, 37, 41, 0.9);
+            backdrop-filter: blur(10px);
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            padding: 0 20px;
+            z-index: 999;
+            box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.2);
+        }
+
+        .bottom-panel button,
+        .bottom-panel input {
+            background-color: rgba(255, 255, 255, 0.1);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 8px;
+            padding: 8px 15px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 14px;
+            font-family: Arial, sans-serif;
+        }
+
+        .bottom-panel button {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: auto;
+            height: 55px;
+            white-space: nowrap;
+        }
+
+        .bottom-panel button i {
+            font-size: 20px;
+            margin-right: 8px;
+            transition: transform 0.3s ease;
+        }
+
+        .bottom-panel button:hover {
+            background-color: rgba(255, 255, 255, 0.2);
+            border-color: rgba(255, 255, 255, 0.5);
+        }
+
+        .bottom-panel button:hover i {
+            transform: translateY(-5px);
+        }
+
+        .search-wrapper {
+            position: relative;
+        }
+
+        .bottom-panel input {
+            width: 300px;
+            text-align: center;
+        }
+
+        .bottom-panel input::placeholder {
+            color: rgba(255, 255, 255, 0.7);
+        }
+
+        .bottom-panel input:focus {
+            outline: none;
+            border-color: #3498db;
+            background-color: rgba(255, 255, 255, 0.2);
+        }
+
+        /* --- СТИЛИ ДЛЯ ВЫПАДАЮЩЕГО СПИСКА ПОИСКА --- */
+
+        #search-results-dropdown {
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 300px;
+            max-height: 200px;
+            background-color: white;
+            border: 1px solid #ccc;
+            border-radius: 8px 8px 0 0;
+            box-shadow: 0 -4px 8px rgba(0,0,0,0.1);
+            overflow-y: auto;
+            z-index: 1000;
+            display: none;
+        }
+
+        #search-results-dropdown.visible {
+            display: block;
+        }
+
+        .search-result-item {
+            padding: 10px 15px;
+            cursor: pointer;
+            color: #333;
+            border-bottom: 1px solid #eee;
+        }
+
+        .search-result-item:last-child {
+            border-bottom: none;
+        }
+
+        .search-result-item:hover {
+            background-color: #f0f0f0;
+        }
+        
+        /* --- СТИЛИ ДЛЯ ИНФОРМАЦИОННОЙ ПАНЕЛИ --- */
+
+        #info-panel {
+            position: fixed;
+            top: 0;
+            right: -350px;
+            width: 350px;
+            height: calc(100vh - 70px);
+            bottom: 70px;
+            background-color: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            box-shadow: -2px 0 10px rgba(0, 0, 0, 0.2);
+            transition: right 0.4s ease-in-out;
+            z-index: 998;
+            overflow-y: auto;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        #info-panel.visible {
+            right: 0;
+        }
+
+        .close-btn {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            font-size: 24px;
+            color: #333;
+            cursor: pointer;
+            transition: color 0.3s;
+        }
+
+        .close-btn:hover {
+            color: #e74c3c;
+        }
+
+        .info-content h2 {
+            margin-top: 10px;
+            color: #2c3e50;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 10px;
+        }
+
+        .info-row {
+            display: flex;
+            align-items: center;
+            margin-top: 15px;
+            color: #34495e;
+        }
+
+        .info-row i {
+            font-size: 18px;
+            width: 30px;
+            color: #3498db;
+            margin-right: 15px;
+        }
+
+        /* --- СТИЛИ ДЛЯ МОДАЛЬНЫХ ОКОН --- */
+
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1001;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal.visible {
+            display: flex;
+        }
+
+        .modal-content {
+            background-color: #fefefe;
+            margin: auto;
+            padding: 0;
+            border: 1px solid #888;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px 0 rgba(0,0,0,0.2),0 6px 20px 0 rgba(0,0,0,0.19);
+            animation: modalopen 0.4s;
+        }
+
+        @keyframes modalopen {
+            from {opacity: 0; transform: scale(0.8)}
+            to {opacity: 1; transform: scale(1)}
+        }
+
+        .modal-header {
+            padding: 15px 20px;
+            background-color: #3498db;
+            color: white;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-radius: 8px 8px 0 0;
+        }
+
+        .modal-header h2 {
+            margin: 0;
+            font-size: 1.5em;
+        }
+
+        .close-btn-modal {
+            color: white;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .close-btn-modal:hover,
+        .close-btn-modal:focus {
+            color: #ccc;
+        }
+
+        .modal-body {
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        #organizations-modal .modal-content {
+            width: 80%;
+            max-width: 600px;
+            max-height: 80vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #org-search-input {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 20px;
+            box-sizing: border-box;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+
+        .org-item {
+            padding: 12px;
+            border-bottom: 1px solid #eee;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        .org-item:last-child {
+            border-bottom: none;
+        }
+
+        .org-item:hover {
+            background-color: #f1f1f1;
+        }
+
+        #videos-modal .modal-content {
+            width: 90%;
+            max-width: 900px;
+            max-height: 90vh;
+        }
+
+        .video-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+        }
+
+        .video-item {
+            cursor: pointer;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            overflow: hidden;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .video-item:hover {
+            transform: scale(1.03);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+
+        .video-item video {
+            width: 100%;
+            height: 150px;
+            object-fit: cover;
+            display: block;
+        }
+
+        .video-item p {
+            margin: 0;
+            padding: 10px;
+            background-color: #f9f9f9;
+            text-align: center;
+            font-weight: bold;
+        }
+
+        #video-player-modal {
+            background-color: rgba(0, 0, 0, 0.9);
+        }
+
+        #video-player-modal .modal-content {
+            width: 90%;
+            max-width: 1200px;
+            height: 80%;
+            background-color: #000;
+            position: relative;
+        }
+
+        #video-player-modal .close-btn-modal {
+            position: absolute;
+            top: 10px;
+            right: 20px;
+            z-index: 1002;
+            color: white;
+            font-size: 40px;
+        }
+        
+        #video-player-modal video {
+            width: 100%;
+            height: 100%;
+        }
+
+        /* --- СТИЛИ ДЛЯ МОДАЛЬНОГО ОКНА СОЦИАЛЬНЫХ СЕТЕЙ --- */
+
+        #social-modal .modal-content {
+            width: 80%;
+            max-width: 400px;
+        }
+
+        .social-links-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .social-link-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 15px 20px;
+            font-size: 18px;
+            font-weight: bold;
+            text-decoration: none;
+            color: white;
+            border-radius: 8px;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .social-link-btn i {
+            font-size: 24px;
+            margin-right: 15px;
+        }
+
+        .social-link-btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+
+        .social-link-btn.tiktok { background-color: #000000; }
+        .social-link-btn.instagram { background: linear-gradient(45deg, #f09433 0%,#e6683c 25%,#dc2743 50%,#cc2366 75%,#bc1888 100%); }
+        .social-link-btn.telegram { background-color: #0088cc; }
+
+    </style>
+</head>
+<body>
+    <!-- Экран загрузки -->
+    <div class="loading-screen" id="loadingScreen">
+        <video id="backgroundVideo" autoplay muted loop playsinline>
+            <source src="image/fon.mp4" type="video/mp4">
+            Ваш браузер не поддерживает тег video.
+        </video>
+        <div class="logo-container">
+            <div class="logo"></div>
+        </div>
+        <div class="welcome-message" id="welcomeMessage">Добро пожаловать</div>
+    </div>
+
+    <!-- Карта -->
+    <div id="map"></div>
+
+    <!-- Панель с областями -->
+    <div id="regions-panel">
+        <h3>Области</h3>
+        <ul class="region-list" id="region-list">
+            <!-- Список областей будет сгенерирован здесь -->
+        </ul>
+    </div>
+
+    <!-- Нижняя панель с кнопками и полем ввода -->
+    <div class="bottom-panel">
+        <button id="organizationsBtn">
+            <i class="fas fa-building"></i>
+            <span>Организации</span>
+        </button>
+        <button id="videosBtn">
+            <i class="fas fa-play-circle"></i>
+            <span>Ознакомительные видео</span>
+        </button>
+        <div class="search-wrapper">
+            <input type="text" id="searchInput" placeholder="Найти организацию">
+            <div id="search-results-dropdown"></div>
+        </div>
+        <button id="supportBtn">
+            <i class="fas fa-headset"></i>
+            <span>Служба поддержки</span>
+        </button>
+        <button id="socialBtn">
+            <i class="fas fa-share-alt"></i>
+            <span>Социальные сети</span>
+        </button>
+    </div>
+
+    <!-- Боковая информационная панель -->
+    <div id="info-panel">
+        <i class="fas fa-times close-btn" id="close-info-btn"></i>
+        <div class="info-content">
+            <h2 id="info-name">Наименование организации</h2>
+            <div class="info-row">
+                <i class="fas fa-map-marker-alt"></i>
+                <span id="info-address">Адрес</span>
+            </div>
+            <div class="info-row">
+                <i class="fas fa-phone"></i>
+                <span id="info-phone">Номер телефона</span>
+            </div>
+            <div class="info-row">
+                <i class="fas fa-envelope"></i>
+                <span id="info-email">Адрес электронной почты</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Модальное окно для списка организаций -->
+    <div id="organizations-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Организации</h2>
+                <span class="close-btn-modal">&times;</span>
+            </div>
+            <div class="modal-body">
+                <input type="text" id="org-search-input" placeholder="Поиск по названию...">
+                <div id="organizations-list"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Модальное окно для списка видео -->
+    <div id="videos-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Ознакомительные видео</h2>
+                <span class="close-btn-modal">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="video-grid" id="video-grid"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Модальное окно для полноэкранного видео -->
+    <div id="video-player-modal" class="modal">
+        <div class="modal-content">
+            <span class="close-btn-modal">&times;</span>
+            <video id="fullscreen-video" controls autoplay>
+                Ваш браузер не поддерживает тег video.
+            </video>
+        </div>
+    </div>
+
+    <!-- Модальное окно для социальных сетей -->
+    <div id="social-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Наши соцсети</h2>
+                <span class="close-btn-modal">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="social-links-grid" id="social-links-grid">
+                    <!-- Кнопки соцсетей будут сгенерированы здесь -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <script>
+        // --- ДАННЫЕ ---
+        const pointsData = [
+            { name: "Центральный комитет ОО «БРСМ»", address: "Республика Беларусь, 220030, г. Минск, ул. К.Маркса, д. 40", phone: "8 (017) 371 04 64", email: "info@brsm.by", color: "#e74c3c", coordinates: [53.901366, 27.565550] },
+            { name: "Минский областной комитет ОО «БРСМ»", address: "220030, г.Минск, ул. К.Маркса, 40/36/38", phone: "+375 (17) 356-33-31", email: "ok@brsmok.by", color: "#e74c3c", coordinates: [53.901366, 27.565550] },
+            { name: "Березинский районный комитет ОО «БРСМ»", address: "223311, г.Березино, ул.Октябрьская, 18", phone: "+375 (1715) 6 90 43", email: "berezino@brsmok.by", color: "#e74c3c", coordinates: [53.834639, 28.994617] },
+            { name: "Борисовский районный комитет ОО «БРСМ»", address: "222311, г.Борисов, ул.Доможирова, 5", phone: "+375 (1776) 722 08 44", email: "borisov@brsmok.by", color: "#e74c3c", coordinates: [54.226, 28.507] }, // ИСПРАВЛЕНЫЕ КООРДИНАТЫ И ДАННЫЕ
+            { name: "Вилейский районный комитет ОО «БРСМ»", address: "222410, г.Вилейка, ул.Партизанская, 40", phone: "+375 (1771) 422 48 т/ф", email: "vileyka@brsmok.by", color: "#e74c3c", coordinates: [54.488405, 26.913220] },
+            { name: "Воложинский районный комитет ОО «БРСМ»", address: "222357, г.Воложин, пл.Свободы, 2", phone: "+375 (1772) 540 27 т/ф", email: "volozhin@brsmok.by", color: "#e74c3c", coordinates: [54.089222, 26.526532] },
+            { name: "Дзержинский районный комитет ОО «БРСМ»", address: "222720, г.Дзержинск, пл.Дзержинского, 1", phone: "+375 (1716) 30 715 т/ф", email: "dzerzhinsk@brsmok.by", color: "#e74c3c", coordinates: [53.685449, 27.131969] },
+            { name: "Жодинский городской комитет ОО «БРСМ»", address: "222161, г.Жодино, ул.40 лет Октября, 7а", phone: "+375 (1775) 481 51 т/ф", email: "zhodino@brsmok.by", color: "#e74c3c", coordinates: [54.096102, 28.323719] },
+            { name: "Клецкий районный комитет ОО «БРСМ»", address: "222531, г. Клецк, ул.Маяковского, 10", phone: "+375 (1793) 504 22 т/ф", email: "kletsk@brsmok.by", color: "#e74c3c", coordinates: [53.066064, 26.633503] },
+            { name: "Копыльский районный комитет ОО «БРСМ»", address: "223927, г. Копыль, ул.Я.Купалы, 2", phone: "+375 (1719) 541 25 т/ф", email: "kopyl@brsmok.by", color: "#e74c3c", coordinates: [53.151808, 27.088060] },
+            { name: "Крупский районный комитет ОО «БРСМ»", address: "222001, г. Крупки, ул.Советская, 45а", phone: "+375 (1796) 42 331 т/ф", email: "krupki@brsmok.by", color: "#e74c3c", coordinates: [54.323928, 29.141096] },
+            { name: "Логойский районный комитет ОО «БРСМ»", address: "223141, г.Логойск, ул.Чкалова, 2", phone: "+375 (1774) 28 316", email: "logoysk@brsmok.by", color: "#e74c3c", coordinates: [54.199875, 27.848978] },
+            { name: "Любанский районный комитет ОО «БРСМ»", address: "223810, г.Любань, ул.Ленина, 52", phone: "+375 (1794) 65 803 т/ф", email: "lyuban@brsmok.by", color: "#e74c3c", coordinates: [52.796164, 28.002886] },
+            { name: "Минский районный комитет ОО «БРСМ»", address: "220073, г.Минск, ул.Ольшевского, 8", phone: "+375 (017) 378 40 11 т/ф", email: "minskrk@brsmok.by", color: "#e74c3c", coordinates: [53.912484, 27.506917] },
+            { name: "Молодечненский районный комитет ОО «БРСМ»", address: "222310, г.Молодечно, ул.Притыцкого, 3а", phone: "+375 (176) 557 922 т/ф, +375 (176) 505 672", email: "molodechno@brsmok.by", color: "#e74c3c", coordinates: [54.312716, 26.839047] },
+            { name: "Мядельский районный комитет ОО «БРСМ»", address: "222397, г.Мядель, ул.Советская, 8", phone: "+375 (1797) 249 63", email: "myadel@brsmok.by", color: "#e74c3c", coordinates: [54.870539, 26.927603] },
+            { name: "Несвижский районный комитет ОО «БРСМ»", address: "222620, г. Несвиж, ул.Советская, 4", phone: "+375 (1770) 51 346 т/ф", email: "nesvizh@brsmok.by", color: "#e74c3c", coordinates: [53.219263, 26.683351] },
+            { name: "Пуховичский районный комитет ОО «БРСМ»", address: "222811, г.Марьина Горка, ул.Ленинская, 51", phone: "+375 (1713) 34 030 т/ф", email: "puhovichi@brsmok.by", color: "#e74c3c", coordinates: [53.510337, 28.148314] },
+            { name: "Слуцкий районный комитет ОО «БРСМ»", address: "223610, г.Слуцк, ул.Ленина, 189", phone: "+375 (1795) 75 080 т/ф", email: "slutsk@brsmok.by", color: "#e74c3c", coordinates: [53.027877, 27.551635] },
+            { name: "Смолевичский районный комитет ОО «БРСМ»", address: "222201, г.Смолевичи, ул.Первомайская, 1а", phone: "+375 (1776) 26 383 т/ф", email: "smolevichi@brsmok.by", color: "#e74c3c", coordinates: [54.029127, 28.091047] },
+            { name: "Солигорский районный комитет ОО «БРСМ»", address: "223710, г.Солигорск, ул.Козлова, 35", phone: "+375 (1742) 372 15, +375 (1742) 308 66, +375 (1742) 372 14 т/ф", email: "soligorsk@brsmok.by", color: "#e74c3c", coordinates: [52.784080, 27.543973] },
+            { name: "Стародорожский районный комитет ОО «БРСМ»", address: "222932, г.Старые Дороги, ул.Пролетарская, 38", phone: "+375 (1792) 307 81 т/ф", email: "staryedorogi@brsmok.by", color: "#e74c3c", coordinates: [53.039428, 28.265984] },
+            { name: "Столбцовский районный комитет ОО «БРСМ»", address: "222666, г.Столбцы, ул.Социалистическая, 28", phone: "+375 (1717) 516 20 т/ф", email: "stolbtsy@brsmok.by", color: "#e74c3c", coordinates: [53.480173, 26.737528] },
+            { name: "Узденский районный комитет ОО «БРСМ»", address: "223411, г.Узда, ул.Советская, 23", phone: "+375 (1718) 601 97", email: "uzda@brsmok.by", color: "#e74c3c", coordinates: [53.467337, 27.213626] },
+            { name: "Червенский районный комитет ОО «БРСМ»", address: "223232, г.Червень, пл.Свободы, 1/3", phone: "+375 (1714) 285 43 т/ф", email: "cherven@brsmok.by", color: "#e74c3c", coordinates: [53.714049, 28.418914] }
+        ];
+
+        const videosData = [
+            { title: "Минск БРСМ -  это большая семья столичной молодёжи, в которой каждый трудится на благо родной страны.", src: "video/1.mp4" },
+            { title: "Первый день Минского городского спортивного фестиваля для работающей молодежи", src: "video/2.mp4" },
+            { title: "Мисс и Мистер студенчество", src: "video/3.mp4" },
+            { title: "Пока мы живы, мы помним!", src: "video/4.mp4" }
+        ];
+
+        const socialLinks = [
+            { name: 'TikTok', icon: 'fab fa-tiktok', url: 'https://www.tiktok.com/discover/брсм?is_from_webapp=1&sender_device=pc' },
+            { name: 'Instagram', icon: 'fab fa-instagram', url: 'https://www.instagram.com/brsm_by/' },
+            { name: 'Telegram', icon: 'fab fa-telegram-plane', url: 'https://t.me/brsmcentral' }
+        ];
+
+        // --- ДАННЫЕ ДЛЯ ОБЛАСТЕЙ ---
+        const regionsData = [
+            { name: "Минская область", color: "#e74c3c", center: [53.5, 27.0] },
+            { name: "Брестская область", color: "#2ecc71", center: [52.0, 24.5] },
+            { name: "Могилевская область", color: "#f1c40f", center: [53.5, 30.0] },
+            { name: "Гродненская область", color: "#3498db", center: [53.5, 24.0] },
+            { name: "Гомельская область", color: "#9b59b6", center: [52.2, 30.0] },
+            { name: "Витебская область", color: "#e67e22", center: [55.0, 29.0] }
+        ];
+
+        // --- ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ---
+        let map;
+        let markersMap = new Map();
+        let activeMarker = null;
+
+        // --- ФУНКЦИИ ---
+
+        // ИСПРАВЛЕННАЯ ФУНКЦИЯ СОЗДАНИЯ ИКОНКИ
+        function createCustomIcon(color) {
+            return L.divIcon({
+                className: 'custom-marker-container', // Контейнер без стилей
+                html: `<div class="custom-marker-shape" style="background-color: ${color};"></div>`, // Форма и цвет
+                iconSize: [30, 30],
+                iconAnchor: [15, 30]
+            });
+        }
+
+        function showInfoPanel(data) {
+            // ИСПРАВЛЕНИЕ: Ищем элемент с классом .custom-marker-shape
+            if (activeMarker) {
+                const iconElement = activeMarker.getElement();
+                if (iconElement) {
+                    const shapeElement = iconElement.querySelector('.custom-marker-shape');
+                    if(shapeElement) shapeElement.classList.remove('active');
+                }
+            }
+            const marker = markersMap.get(data.name);
+            if (marker) {
+                const iconElement = marker.getElement();
+                if (iconElement) {
+                    const shapeElement = iconElement.querySelector('.custom-marker-shape');
+                    if(shapeElement) shapeElement.classList.add('active');
+                }
+                activeMarker = marker;
+            }
+            const panel = document.getElementById('info-panel');
+            document.getElementById('info-name').textContent = data.name;
+            document.getElementById('info-address').textContent = data.address;
+            document.getElementById('info-phone').textContent = data.phone;
+            document.getElementById('info-email').textContent = data.email;
+            panel.classList.add('visible');
+        }
+
+        function hideInfoPanel() {
+            // ИСПРАВЛЕНИЕ: Ищем элемент с классом .custom-marker-shape
+            if (activeMarker) {
+                const iconElement = activeMarker.getElement();
+                if (iconElement) {
+                    const shapeElement = iconElement.querySelector('.custom-marker-shape');
+                    if(shapeElement) shapeElement.classList.remove('active');
+                }
+                activeMarker = null;
+            }
+            const panel = document.getElementById('info-panel'); panel.classList.remove('visible');
+        }
+
+        function populateOrganizationsList() {
+            const listContainer = document.getElementById('organizations-list'); listContainer.innerHTML = '';
+            const sortedData = [...pointsData].sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+            sortedData.forEach(point => {
+                const item = document.createElement('div'); item.className = 'org-item'; item.textContent = point.name;
+                item.addEventListener('click', () => { hideOrganizationsModal(); map.setView(point.coordinates, 15); showInfoPanel(point); });
+                listContainer.appendChild(item);
+            });
+        }
+
+        function showOrganizationsModal() { const modal = document.getElementById('organizations-modal'); modal.classList.add('visible'); populateOrganizationsList(); }
+        function hideOrganizationsModal() { const modal = document.getElementById('organizations-modal'); modal.classList.remove('visible'); }
+
+        function populateVideosList() {
+            const gridContainer = document.getElementById('video-grid'); gridContainer.innerHTML = '';
+            videosData.forEach(video => {
+                const item = document.createElement('div'); item.className = 'video-item';
+                const videoElement = document.createElement('video'); videoElement.src = video.src; videoElement.muted = true;
+                const titleElement = document.createElement('p'); titleElement.textContent = video.title;
+                item.appendChild(videoElement); item.appendChild(titleElement);
+                item.addEventListener('click', () => { showVideoPlayerModal(video.src); });
+                gridContainer.appendChild(item);
+            });
+        }
+        
+        function showVideosModal() { const modal = document.getElementById('videos-modal'); modal.classList.add('visible'); populateVideosList(); }
+        function hideVideosModal() { const modal = document.getElementById('videos-modal'); modal.classList.remove('visible'); }
+
+        function showVideoPlayerModal(src) {
+            const modal = document.getElementById('video-player-modal');
+            const videoPlayer = document.getElementById('fullscreen-video');
+            videoPlayer.src = src;
+            modal.classList.add('visible');
+        }
+
+        function hideVideoPlayerModal() {
+            const modal = document.getElementById('video-player-modal');
+            const videoPlayer = document.getElementById('fullscreen-video');
+            videoPlayer.pause(); videoPlayer.muted = true; videoPlayer.currentTime = 0; videoPlayer.src = '';
+            modal.classList.remove('visible');
+        }
+        
+        function handleSearchInput() {
+            const searchInput = document.getElementById('searchInput');
+            const dropdown = document.getElementById('search-results-dropdown');
+            const searchTerm = searchInput.value.toLowerCase().trim();
+            if (searchTerm === '') { dropdown.classList.remove('visible'); dropdown.innerHTML = ''; return; }
+            const filteredResults = pointsData.filter(point => point.name.toLowerCase().includes(searchTerm));
+            if (filteredResults.length === 0) { dropdown.classList.remove('visible'); dropdown.innerHTML = ''; return; }
+            dropdown.innerHTML = '';
+            filteredResults.forEach(point => {
+                const item = document.createElement('div'); item.className = 'search-result-item'; item.textContent = point.name;
+                item.addEventListener('click', () => { map.setView(point.coordinates, 15); showInfoPanel(point); searchInput.value = ''; dropdown.classList.remove('visible'); });
+                dropdown.appendChild(item);
+            });
+            dropdown.classList.add('visible');
+        }
+
+        function clearSearch() {
+            const searchInput = document.getElementById('searchInput');
+            const dropdown = document.getElementById('search-results-dropdown');
+            searchInput.value = '';
+            dropdown.classList.remove('visible');
+            dropdown.innerHTML = '';
+        }
+
+        // --- ФУНКЦИИ ДЛЯ ПАНЕЛИ ОБЛАСТЕЙ ---
+
+        function populateRegionsPanel() {
+            const listContainer = document.getElementById('region-list');
+            listContainer.innerHTML = '';
+
+            regionsData.forEach(region => {
+                const item = document.createElement('li');
+                item.className = 'region-item';
+
+                const colorIndicator = document.createElement('span');
+                colorIndicator.className = 'region-color-indicator';
+                colorIndicator.style.backgroundColor = region.color;
+
+                const nameSpan = document.createElement('span');
+                nameSpan.textContent = region.name;
+
+                item.appendChild(colorIndicator);
+                item.appendChild(nameSpan);
+
+                item.addEventListener('click', () => {
+                    map.setView(region.center, 9);
+                });
+
+                listContainer.appendChild(item);
+            });
+        }
+
+        function populateSocialLinks() {
+            const gridContainer = document.getElementById('social-links-grid'); gridContainer.innerHTML = '';
+            socialLinks.forEach(social => {
+                const link = document.createElement('a');
+                link.href = social.url;
+                link.target = '_blank';
+                link.className = `social-link-btn ${social.name.toLowerCase()}`;
+                link.innerHTML = `<i class="${social.icon}"></i>${social.name}`;
+                gridContainer.appendChild(link);
+            });
+        }
+
+        function showSocialModal() {
+            const modal = document.getElementById('social-modal');
+            modal.classList.add('visible');
+            populateSocialLinks();
+        }
+
+        function hideSocialModal() {
+            const modal = document.getElementById('social-modal');
+            modal.classList.remove('visible');
+        }
+
+
+        function initMap() {
+            map = L.map('map', { zoomControl: false }).setView([53.7098, 27.9534], 7);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' }).addTo(map);
+            
+            // Загрузка границ
+            fetch('https://raw.githubusercontent.com/codeforamerica/click_that_hood/master/public/data/belarus.geojson')
+                .then(response => response.json())
+                .then(data => L.geoJSON(data, { style: { "color": "#ff0000", "weight": 3, "opacity": 1, "fillOpacity": 0.1 } }).addTo(map))
+                .catch(error => {
+                    console.error('Ошибка при загрузке GeoJSON:', error);
+                    fetch('https://raw.githubusercontent.com/holtzy/D3-graph-gallery/master/DATA/world.geojson')
+                        .then(response => response.json())
+                        .then(worldData => {
+                            const belarusData = worldData.features.find(feature => feature.properties.name === "Belarus");
+                            if (belarusData) {
+                                var belarusStyle = { "color": "#ff0000", "weight": 3, "opacity": 1, "fillOpacity": 0.1 };
+                                L.geoJSON(belarusData, { style: belarusStyle }).addTo(map);
+                            } else {
+                                var belarusBounds = [[51.256, 23.178], [56.169, 32.777]];
+                                L.rectangle(belarusBounds, { color: "#ff0000", weight: 3, opacity: 1, fillOpacity: 0.1 }).addTo(map);
+                            }
+                        });
+                });
+
+            // Добавление меток
+            pointsData.forEach(point => {
+                const customIcon = createCustomIcon(point.color);
+                const marker = L.marker(point.coordinates, { icon: customIcon }).addTo(map);
+                markersMap.set(point.name, marker);
+                marker.on('click', () => showInfoPanel(point));
+            });
+        }
+
+        // --- ГЛАВНЫЙ ЗАПУСК И ОБРАБОТЧИКИ СОБЫТИЙ ---
+        window.addEventListener('load', function() {
+            setTimeout(() => { document.getElementById('welcomeMessage').classList.add('show'); }, 5000);
+            
+            setTimeout(() => {
+                document.getElementById('loadingScreen').style.opacity = '0';
+                setTimeout(() => {
+                    document.getElementById('loadingScreen').style.display = 'none';
+                    document.getElementById('map').style.display = 'block';
+                    initMap(); // Инициализируем карту
+                    populateRegionsPanel(); // Заполняем панель областей
+                }, 500);
+            }, 7000);
+
+            // --- НАЗНАЧЕНИЕ ОБРАБОТЧИКОВ СОБЫТИЙ ---
+            
+            // Кнопки нижней панели
+            document.getElementById('organizationsBtn').addEventListener('click', showOrganizationsModal);
+            document.getElementById('videosBtn').addEventListener('click', showVideosModal);
+            
+            document.getElementById('supportBtn').addEventListener('click', () => {
+                window.location.href = 'mailto:brsm.ru@gmail.com';
+            });
+            document.getElementById('socialBtn').addEventListener('click', showSocialModal);
+            
+            // Поиск на главном экране
+            const searchInput = document.getElementById('searchInput');
+            searchInput.addEventListener('input', handleSearchInput);
+            searchInput.addEventListener('blur', () => { setTimeout(clearSearch, 200); });
+            searchInput.addEventListener('focus', () => { if(searchInput.value === '') clearSearch(); });
+
+            // Закрытие боковой панели
+            document.getElementById('close-info-btn').addEventListener('click', hideInfoPanel);
+
+            // Закрытие модальных окон
+            document.querySelector('#organizations-modal .close-btn-modal').addEventListener('click', hideOrganizationsModal);
+            document.getElementById('organizations-modal').addEventListener('click', function(event) { if (event.target === this) { hideOrganizationsModal(); } });
+
+            document.querySelector('#videos-modal .close-btn-modal').addEventListener('click', hideVideosModal);
+            document.getElementById('videos-modal').addEventListener('click', function(event) { if (event.target === this) { hideVideosModal(); } });
+
+            document.querySelector('#video-player-modal .close-btn-modal').addEventListener('click', hideVideoPlayerModal);
+            document.getElementById('video-player-modal').addEventListener('click', function(event) { if (event.target === this) { hideVideoPlayerModal(); } });
+
+            document.querySelector('#social-modal .close-btn-modal').addEventListener('click', hideSocialModal);
+            document.getElementById('social-modal').addEventListener('click', function(event) { if (event.target === this) { hideSocialModal(); } });
+
+            // Поиск в модальном окне организаций
+            document.getElementById('org-search-input').addEventListener('input', function(event) {
+                const searchTerm = event.target.value.toLowerCase();
+                const orgItems = document.querySelectorAll('.org-item');
+                orgItems.forEach(item => {
+                    const itemName = item.textContent.toLowerCase();
+                    item.style.display = itemName.includes(searchTerm) ? '' : 'none';
+                });
+            });
+        });
+    </script>
+</body>
+</html>
